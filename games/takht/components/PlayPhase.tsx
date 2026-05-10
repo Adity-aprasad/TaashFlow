@@ -1,9 +1,9 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import type { GamePhaseProps, BetRow } from '@/lib/engine/types'
-import { createBrowserClient } from '@/lib/supabase/client'
-import { getCardsPerPlayer } from '@/lib/utils'
+import { useState, useEffect } from "react";
+import type { GamePhaseProps, BetRow } from "@/lib/engine/types";
+import { createBrowserClient } from "@/lib/supabase/client";
+import { getCardsPerPlayer } from "@/lib/utils";
 
 /**
  * Play phase component for Takht.
@@ -11,61 +11,71 @@ import { getCardsPerPlayer } from '@/lib/utils'
  * and "Enter Scores" button when round ends.
  */
 export function PlayPhase({ room, players, currentPlayer }: GamePhaseProps) {
-  const [bets, setBets] = useState<BetRow[]>([])
-  const [trickCounts, setTrickCounts] = useState<Record<string, number>>({})
+  const [bets, setBets] = useState<BetRow[]>([]);
+  const [trickCounts, setTrickCounts] = useState<Record<string, number>>({});
 
-  const activePlayers = players.filter((p) => !p.is_spectator && !p.is_eliminated)
-  const cardsPerPlayer = getCardsPerPlayer(activePlayers.length)
-  const isOwner = currentPlayer?.is_owner || false
-  const canEnterScores = room.permission_mode === 'player' || isOwner
+  const activePlayers = players.filter(
+    (p) => !p.is_spectator && !p.is_eliminated,
+  );
+  const cardsPerPlayer = getCardsPerPlayer(activePlayers.length);
+  const isOwner = currentPlayer?.is_owner || false;
+  const canEnterScores = room.permission_mode === "player" || isOwner;
 
   useEffect(() => {
     async function fetchBets() {
-      const supabase = createBrowserClient()
+      const supabase = createBrowserClient();
       const { data: roundData } = await supabase
-        .from('rounds')
-        .select('id')
-        .eq('room_id', room.id)
-        .eq('round_number', room.current_round)
-        .single()
+        .from("rounds")
+        .select("id")
+        .eq("room_id", room.id)
+        .eq("round_number", room.current_round)
+        .maybeSingle();
 
       if (roundData) {
         const { data: betsData } = await supabase
-          .from('bets')
-          .select('*')
-          .eq('round_id', roundData.id)
+          .from("bets")
+          .select("*")
+          .eq("round_id", roundData.id);
 
         if (betsData) {
-          setBets(betsData as BetRow[])
+          setBets(betsData as BetRow[]);
         }
       }
     }
-    fetchBets()
-  }, [room.id, room.current_round])
+    fetchBets();
+  }, [room.id, room.current_round]);
 
   async function handleEnterScores() {
-    const supabase = createBrowserClient()
+    const supabase = createBrowserClient();
     await supabase
-      .from('rooms')
-      .update({ status: 'scoring', last_activity: new Date().toISOString() })
-      .eq('id', room.id)
+      .from("rooms")
+      .update({ status: "scoring", last_activity: new Date().toISOString() })
+      .eq("id", room.id);
   }
 
   function updateTrickCount(playerId: string, delta: number) {
     setTrickCounts((prev) => ({
       ...prev,
-      [playerId]: Math.max(0, Math.min(cardsPerPlayer, (prev[playerId] || 0) + delta)),
-    }))
+      [playerId]: Math.max(
+        0,
+        Math.min(cardsPerPlayer, (prev[playerId] || 0) + delta),
+      ),
+    }));
   }
 
-  const optionalRules = room.game_settings.optional_rules as Record<string, { enabled: boolean; value?: number }> | undefined
-  const roundLimit = optionalRules?.round_limit
+  const optionalRules = room.game_settings.optional_rules as
+    | Record<string, { enabled: boolean; value?: number }>
+    | undefined;
+  const roundLimit = optionalRules?.round_limit;
 
   return (
     <div className="p-6 space-y-6">
       {/* Round Header */}
       <div className="text-center space-y-1">
-        <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--font-heading)' }}>
+        <h2
+          className="text-2xl font-bold"
+          style={{ fontFamily: "var(--font-heading)" }}
+        >
           Round {room.current_round} in Progress
         </h2>
         {roundLimit?.enabled && (
@@ -81,8 +91,8 @@ export function PlayPhase({ room, players, currentPlayer }: GamePhaseProps) {
       {/* Player Bets & Trick Counter */}
       <div className="space-y-3 max-w-lg mx-auto">
         {activePlayers.map((player) => {
-          const playerBet = bets.find((b) => b.player_id === player.id)
-          const tricks = trickCounts[player.id] || 0
+          const playerBet = bets.find((b) => b.player_id === player.id);
+          const tricks = trickCounts[player.id] || 0;
 
           return (
             <div
@@ -96,9 +106,14 @@ export function PlayPhase({ room, players, currentPlayer }: GamePhaseProps) {
                 {player.display_name.slice(0, 2).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{player.display_name}</p>
+                <p className="text-sm font-medium truncate">
+                  {player.display_name}
+                </p>
                 <p className="text-xs text-[var(--color-muted)]">
-                  Bet: <span className="text-[var(--color-gold)]">{playerBet?.bet_amount ?? '?'}</span>
+                  Bet:{" "}
+                  <span className="text-[var(--color-gold)]">
+                    {playerBet?.bet_amount ?? "?"}
+                  </span>
                 </p>
               </div>
               {/* Trick counter (cosmetic) */}
@@ -110,7 +125,9 @@ export function PlayPhase({ room, players, currentPlayer }: GamePhaseProps) {
                 >
                   −
                 </button>
-                <span className="w-6 text-center font-mono text-sm">{tricks}</span>
+                <span className="w-6 text-center font-mono text-sm">
+                  {tricks}
+                </span>
                 <button
                   onClick={() => updateTrickCount(player.id, 1)}
                   className="w-8 h-8 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-sm hover:border-[var(--color-gold)] transition-colors"
@@ -120,7 +137,7 @@ export function PlayPhase({ room, players, currentPlayer }: GamePhaseProps) {
                 </button>
               </div>
             </div>
-          )
+          );
         })}
       </div>
 
@@ -140,5 +157,5 @@ export function PlayPhase({ room, players, currentPlayer }: GamePhaseProps) {
         </div>
       )}
     </div>
-  )
+  );
 }

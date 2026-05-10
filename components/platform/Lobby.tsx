@@ -1,20 +1,20 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { motion } from 'framer-motion'
-import { Copy, Share2, Crown, LogOut, X as XIcon } from 'lucide-react'
-import type { RoomRow, PlayerRow } from '@/lib/engine/types'
-import { createBrowserClient } from '@/lib/supabase/client'
-import { leaveRoom, kickPlayer, touchRoom } from '@/lib/engine/room'
-import { clearStoredRoomCode } from '@/lib/engine/session'
-import { getGameConfig } from '@/games/registry'
-import { getCardsPerPlayer } from '@/lib/utils'
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Copy, Share2, Crown, LogOut, X as XIcon } from "lucide-react";
+import type { RoomRow, PlayerRow } from "@/lib/engine/types";
+import { createBrowserClient } from "@/lib/supabase/client";
+import { leaveRoom, kickPlayer, touchRoom } from "@/lib/engine/room";
+import { clearStoredRoomCode } from "@/lib/engine/session";
+import { getGameConfig } from "@/games/registry";
+import { getCardsPerPlayer } from "@/lib/utils";
 
 interface LobbyProps {
-  room: RoomRow
-  players: PlayerRow[]
-  currentPlayer: PlayerRow | null
+  room: RoomRow;
+  players: PlayerRow[];
+  currentPlayer: PlayerRow | null;
 }
 
 /**
@@ -23,113 +23,119 @@ interface LobbyProps {
  * Handles ready toggle, kick, force start, and auto-start countdown.
  */
 export function Lobby({ room, players, currentPlayer }: LobbyProps) {
-  const router = useRouter()
-  const [countdown, setCountdown] = useState<number | null>(null)
-  const [copied, setCopied] = useState(false)
+  const router = useRouter();
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const isOwner = currentPlayer?.is_owner || false
-  const activePlayers = players.filter((p) => !p.is_spectator)
-  const readyCount = activePlayers.filter((p) => p.is_ready).length
-  const readyPercent = activePlayers.length > 0 ? (readyCount / activePlayers.length) * 100 : 0
-  const gameConfig = getGameConfig(room.game_slug)
+  const isOwner = currentPlayer?.is_owner || false;
+  const activePlayers = players.filter((p) => !p.is_spectator);
+  const readyCount = activePlayers.filter((p) => p.is_ready).length;
+  const readyPercent =
+    activePlayers.length > 0 ? (readyCount / activePlayers.length) * 100 : 0;
+  const gameConfig = getGameConfig(room.game_slug);
 
   // Auto-start countdown when >= 50% ready
   useEffect(() => {
-    if (readyPercent >= 50 && activePlayers.length >= (gameConfig?.minPlayers || 2)) {
-      setCountdown(5)
+    if (
+      readyPercent >= 50 &&
+      activePlayers.length >= (gameConfig?.minPlayers || 2)
+    ) {
+      setCountdown(5);
     } else {
-      setCountdown(null)
+      setCountdown(null);
     }
-  }, [readyPercent, activePlayers.length])
+  }, [readyPercent, activePlayers.length]);
 
   useEffect(() => {
-    if (countdown === null) return
+    if (countdown === null) return;
     if (countdown <= 0) {
-      handleStartGame()
-      return
+      handleStartGame();
+      return;
     }
-    const timer = setTimeout(() => setCountdown(countdown - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [countdown])
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   async function handleReady() {
-    if (!currentPlayer) return
-    const supabase = createBrowserClient()
+    if (!currentPlayer) return;
+    const supabase = createBrowserClient();
     await supabase
-      .from('players')
+      .from("players")
       .update({ is_ready: !currentPlayer.is_ready })
-      .eq('id', currentPlayer.id)
+      .eq("id", currentPlayer.id);
   }
 
   async function handleStartGame() {
-    if (!isOwner && countdown === null) return
-    const supabase = createBrowserClient()
+    if (!isOwner) return;
+    const supabase = createBrowserClient();
 
     // Determine first phase based on game
-    const firstStatus = room.game_slug === 'takht' ? 'betting' : 'playing'
+    const firstStatus = room.game_slug === "takht" ? "betting" : "scoring";
 
     await supabase
-      .from('rooms')
+      .from("rooms")
       .update({
         status: firstStatus,
         current_round: 1,
         last_activity: new Date().toISOString(),
       })
-      .eq('id', room.id)
+      .eq("id", room.id);
 
     // Create first round record for Takht
-    if (room.game_slug === 'takht') {
-      const cardsPerPlayer = getCardsPerPlayer(activePlayers.length)
-      await supabase
-        .from('rounds')
-        .insert({
-          room_id: room.id,
-          round_number: 1,
-          round_meta: { cards_per_player: cardsPerPlayer, betting_started_at: new Date().toISOString() },
-        })
+    if (room.game_slug === "takht") {
+      const cardsPerPlayer = getCardsPerPlayer(activePlayers.length);
+      await supabase.from("rounds").insert({
+        room_id: room.id,
+        round_number: 1,
+        round_meta: {
+          cards_per_player: cardsPerPlayer,
+          betting_started_at: new Date().toISOString(),
+        },
+      });
     }
 
     // Initialize scores for all players
     for (const player of activePlayers) {
-      await supabase
-        .from('scores')
-        .upsert({
+      await supabase.from("scores").upsert(
+        {
           player_id: player.id,
           room_id: room.id,
           cumulative_score: 0,
           last_updated: new Date().toISOString(),
-        }, { onConflict: 'player_id,room_id' })
+        },
+        { onConflict: "player_id,room_id" },
+      );
     }
   }
 
   async function handleKick(playerId: string) {
-    if (!currentPlayer) return
-    const supabase = createBrowserClient()
-    await kickPlayer(supabase, playerId, room.id, currentPlayer.auth_id)
+    if (!currentPlayer) return;
+    const supabase = createBrowserClient();
+    await kickPlayer(supabase, playerId, room.id, currentPlayer.auth_id);
   }
 
   async function handleLeave() {
-    if (!currentPlayer) return
-    const supabase = createBrowserClient()
-    await leaveRoom(supabase, currentPlayer.id, room.id)
-    clearStoredRoomCode()
-    router.push('/')
+    if (!currentPlayer) return;
+    const supabase = createBrowserClient();
+    await leaveRoom(supabase, currentPlayer.id, room.id);
+    clearStoredRoomCode();
+    router.push("/");
   }
 
   async function handleCopyCode() {
-    await navigator.clipboard.writeText(room.code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    await navigator.clipboard.writeText(room.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   async function handleShare() {
-    const url = `${window.location.origin}/room/${room.code}`
+    const url = `${window.location.origin}/room/${room.code}`;
     if (navigator.share) {
-      await navigator.share({ title: 'Join my Takht room', url })
+      await navigator.share({ title: "Join my Takht room", url });
     } else {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   }
 
@@ -142,7 +148,9 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
           animate={{ opacity: 1, y: 0 }}
           className="text-center space-y-2"
         >
-          <p className="text-sm text-[var(--color-muted)] uppercase tracking-wide">Room Code</p>
+          <p className="text-sm text-[var(--color-muted)] uppercase tracking-wide">
+            Room Code
+          </p>
           <div className="flex items-center justify-center gap-3">
             <h2 className="text-4xl font-mono font-bold tracking-[0.3em] text-[var(--color-gold)]">
               {room.code}
@@ -162,9 +170,12 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
               <Share2 size={20} />
             </button>
           </div>
-          {copied && <p className="text-xs text-[var(--color-green)]">Copied!</p>}
+          {copied && (
+            <p className="text-xs text-[var(--color-green)]">Copied!</p>
+          )}
           <p className="text-sm text-[var(--color-muted)]">
-            {gameConfig?.icon} {gameConfig?.name} • {room.max_players} max players
+            {gameConfig?.icon} {gameConfig?.name} • {room.max_players} max
+            players
           </p>
         </motion.div>
 
@@ -184,7 +195,9 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
         {/* Ready progress */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm text-[var(--color-muted)]">
-            <span>{readyCount} / {activePlayers.length} ready</span>
+            <span>
+              {readyCount} / {activePlayers.length} ready
+            </span>
             <span>{Math.round(readyPercent)}%</span>
           </div>
           <div className="h-2 bg-[var(--color-surface-2)] rounded-full overflow-hidden">
@@ -205,8 +218,8 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
               animate={{ opacity: 1, x: 0 }}
               className={`flex items-center gap-3 p-3 rounded-[var(--radius-md)] border ${
                 player.is_ready
-                  ? 'bg-[var(--color-green)]/10 border-[var(--color-green)]/30'
-                  : 'bg-[var(--color-surface-2)] border-[var(--color-border)]'
+                  ? "bg-[var(--color-green)]/10 border-[var(--color-green)]/30"
+                  : "bg-[var(--color-surface-2)] border-[var(--color-border)]"
               }`}
             >
               <div
@@ -218,10 +231,15 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="font-medium truncate">{player.display_name}</p>
-                  {player.is_owner && <Crown size={14} className="text-[var(--color-gold)] shrink-0" />}
+                  {player.is_owner && (
+                    <Crown
+                      size={14}
+                      className="text-[var(--color-gold)] shrink-0"
+                    />
+                  )}
                 </div>
                 <p className="text-xs text-[var(--color-muted)]">
-                  {player.is_ready ? '✓ Ready' : 'Not ready'}
+                  {player.is_ready ? "✓ Ready" : "Not ready"}
                 </p>
               </div>
               {isOwner && !player.is_owner && (
@@ -244,11 +262,11 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
               onClick={handleReady}
               className={`flex-1 py-3 rounded-[var(--radius-md)] font-semibold transition-all ${
                 currentPlayer.is_ready
-                  ? 'bg-[var(--color-green)] text-white'
-                  : 'bg-[var(--color-gold)] text-[var(--color-bg)]'
+                  ? "bg-[var(--color-green)] text-white"
+                  : "bg-[var(--color-gold)] text-[var(--color-bg)]"
               }`}
             >
-              {currentPlayer.is_ready ? '✓ Ready' : 'Ready Up'}
+              {currentPlayer.is_ready ? "✓ Ready" : "Ready Up"}
             </button>
           )}
           {isOwner && (
@@ -277,16 +295,28 @@ export function Lobby({ room, players, currentPlayer }: LobbyProps) {
           <div className="mt-3 space-y-1 text-xs text-[var(--color-muted)]">
             <p>Game: {gameConfig?.name}</p>
             <p>Max Players: {room.max_players}</p>
-            <p>Mode: {room.permission_mode === 'owner' ? 'Host Controls' : 'Each Player'}</p>
-            {room.game_slug === 'takht' && (
+            <p>
+              Mode:{" "}
+              {room.permission_mode === "owner"
+                ? "Host Controls"
+                : "Each Player"}
+            </p>
+            {room.game_slug === "takht" && (
               <>
-                <p>Zero Bet Value: {(room.game_settings as Record<string, unknown>).zero_bet_value as number || 150}</p>
-                <p>Cards per player: {getCardsPerPlayer(activePlayers.length)} (with {activePlayers.length} players)</p>
+                <p>
+                  Zero Bet Value:{" "}
+                  {((room.game_settings as Record<string, unknown>)
+                    .zero_bet_value as number) || 150}
+                </p>
+                <p>
+                  Cards per player: {getCardsPerPlayer(activePlayers.length)}{" "}
+                  (with {activePlayers.length} players)
+                </p>
               </>
             )}
           </div>
         </details>
       </div>
     </div>
-  )
+  );
 }

@@ -1,13 +1,14 @@
-'use client'
+"use client";
 
-import type { RoomRow, PlayerRow } from '@/lib/engine/types'
-import { getGameConfig } from '@/games/registry'
-import { Dashboard } from './Dashboard'
+import type { ComponentType } from "react";
+import type { RoomRow, PlayerRow } from "@/lib/engine/types";
+import { getGameConfig } from "@/games/registry";
+import { Dashboard } from "./Dashboard";
 
 interface RoomPhaseRouterProps {
-  room: RoomRow
-  players: PlayerRow[]
-  currentPlayer: PlayerRow | null
+  room: RoomRow;
+  players: PlayerRow[];
+  currentPlayer: PlayerRow | null;
 }
 
 /**
@@ -15,36 +16,42 @@ interface RoomPhaseRouterProps {
  * Reads game_slug from room, looks up config from registry, renders component.
  * Also shows Dashboard alongside phase component when configured.
  */
-export function RoomPhaseRouter({ room, players, currentPlayer }: RoomPhaseRouterProps) {
-  const gameConfig = getGameConfig(room.game_slug)
+export function RoomPhaseRouter({
+  room,
+  players,
+  currentPlayer,
+}: RoomPhaseRouterProps) {
+  const gameConfig = getGameConfig(room.game_slug);
 
   if (!gameConfig) {
     return (
       <div className="flex items-center justify-center min-h-dvh">
-        <p className="text-[var(--color-red)]">Unknown game: {room.game_slug}</p>
+        <p className="text-[var(--color-red)]">
+          Unknown game: {room.game_slug}
+        </p>
       </div>
-    )
+    );
   }
 
-  const phaseConfig = gameConfig.phases.find((p) => p.key === room.status)
-  const props = { room, players, currentPlayer }
+  const phaseConfig = gameConfig.phases.find((p) => p.key === room.status);
+  const props = { room, players, currentPlayer };
 
   // Determine which component to render for this phase
-  let PhaseComponent: React.ComponentType<typeof props> | null = null
+  let PhaseComponent: ComponentType<typeof props> | null = null;
 
   switch (room.status) {
-    case 'betting':
-      PhaseComponent = gameConfig.components.BettingPhase || null
-      break
-    case 'playing':
-      PhaseComponent = gameConfig.components.PlayPhase || null
-      break
-    case 'scoring':
-      PhaseComponent = gameConfig.components.ScoreEntry
-      break
-    case 'ended':
-      PhaseComponent = gameConfig.components.GameEndScreen
-      break
+    case "betting":
+      PhaseComponent = gameConfig.components.BettingPhase || null;
+      break;
+    case "playing":
+      PhaseComponent = gameConfig.components.PlayPhase || null;
+      break;
+    case "scoring":
+      PhaseComponent = gameConfig.components.ScoreEntry;
+      break;
+    case "ended":
+      PhaseComponent = gameConfig.components.GameEndScreen;
+      break;
   }
 
   if (!PhaseComponent) {
@@ -54,16 +61,16 @@ export function RoomPhaseRouter({ room, players, currentPlayer }: RoomPhaseRoute
           Waiting for game to start...
         </p>
       </div>
-    )
+    );
   }
 
   // For ended phase, just show the game end screen
-  if (room.status === 'ended') {
-    return <PhaseComponent {...props} />
+  if (room.status === "ended") {
+    return <PhaseComponent {...props} />;
   }
 
   // For other phases, show with dashboard if configured
-  const showDashboard = phaseConfig?.showDashboard ?? false
+  const showDashboard = phaseConfig?.showDashboard ?? false;
 
   if (showDashboard) {
     return (
@@ -77,8 +84,8 @@ export function RoomPhaseRouter({ room, players, currentPlayer }: RoomPhaseRoute
           <Dashboard {...props} />
         </div>
       </div>
-    )
+    );
   }
 
-  return <PhaseComponent {...props} />
+  return <PhaseComponent {...props} />;
 }

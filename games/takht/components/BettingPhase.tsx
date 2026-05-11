@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { GamePhaseProps } from "@/lib/engine/types";
@@ -37,6 +35,8 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
   const betRef = useRef(0);
   const isActiveRef = useRef(false);
   const revealedRef = useRef(false); // prevents double-reveal
+  const isOwnerRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   // Shared channel ref so doLockBet and revealBets can send on the SAME
   // already-subscribed channel instead of spinning up throwaway channels.
   const channelRef = useRef<ReturnType<
@@ -69,6 +69,48 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
   useEffect(() => {
     revealedRef.current = revealed;
   }, [revealed]);
+  useEffect(() => {
+    isOwnerRef.current = isOwner;
+  }, [isOwner]);
+
+  // ── Fetch existing bets to handle refreshes / late joiners ───────────────
+  useEffect(() => {
+    async function fetchExistingBets() {
+      const supabase = createBrowserClient();
+      const { data: roundData } = await supabase
+        .from("rounds")
+        .select("id")
+        .eq("room_id", room.id)
+        .eq("round_number", room.current_round)
+        .maybeSingle();
+
+      if (roundData) {
+        const { data: betsData } = await supabase
+          .from("bets")
+          .select("player_id, bet_amount")
+          .eq("round_id", roundData.id);
+
+        if (betsData && betsData.length > 0) {
+          setLockedPlayers((prev) => {
+            const next = new Set(prev);
+            betsData.forEach((b) => next.add(b.player_id));
+            return next;
+          });
+
+          if (currentPlayer) {
+            const myBet = betsData.find(
+              (b) => b.player_id === currentPlayer.id,
+            );
+            if (myBet) {
+              setBet(myBet.bet_amount);
+              setLocked(true);
+            }
+          }
+        }
+      }
+    }
+    fetchExistingBets();
+  }, [room.id, room.current_round, currentPlayer]);
 
   // ── Clamp bet to minBet on first mount / when rules change ────────────────
   useEffect(() => {
@@ -109,6 +151,35 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
   // client — including late joiners and refreshes — counts from the same origin.
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
+    let isUnmounted = false;
+
+    // Start playing synchronously to bypass strict browser autoplay policies
+    // that drop the user gesture context after an `await`.
+    if (!audioRef.current) {
+      const audio = new Audio("/Start.mp3");
+       audio.volume = 1;
+      audio.preload = "auto";
+      audio.loop = true;
+
+      audioRef.current = audio;
+
+      const attemptPlay = () => {
+        if (isUnmounted) return;
+        audio.play().catch((err) => {
+          console.warn("Autoplay blocked. Waiting for user interaction.", err);
+          const unlockAudio = () => {
+            if (!isUnmounted && audioRef.current) {
+              audioRef.current.play().catch(() => {});
+            }
+            window.removeEventListener("click", unlockAudio);
+            window.removeEventListener("touchstart", unlockAudio);
+          };
+          window.addEventListener("click", unlockAudio);
+          window.addEventListener("touchstart", unlockAudio);
+        });
+      };
+      attemptPlay();
+    }
 
     async function initTimer() {
       const supabase = createBrowserClient();
@@ -117,12 +188,27 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
         .select("round_meta")
         .eq("room_id", room.id)
         .eq("round_number", room.current_round)
-        .single();
+        .maybeSingle();
+
+      if (isUnmounted) return;
 
       const meta = (roundData?.round_meta ?? {}) as Record<string, unknown>;
       const serverStart = meta.betting_started_at
         ? new Date(meta.betting_started_at as string).getTime()
         : Date.now();
+
+      const initialElapsed = Date.now() - serverStart;
+
+      // If the timer has already expired, stop the audio.
+      // Otherwise, sync the music with the elapsed time.
+      if (initialElapsed >= BETTING_DURATION_MS) {
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current = null;
+        }
+      } else if (audioRef.current && initialElapsed > 1000) {
+        audioRef.current.currentTime = initialElapsed / 1000;
+      }
 
       interval = setInterval(() => {
         const elapsed = Date.now() - serverStart;
@@ -131,16 +217,41 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
 
         if (remaining <= 0) {
           clearInterval(interval);
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
           // Auto-lock with current bet value if player hasn't locked yet
           if (!lockedRef.current && isActiveRef.current) {
+            const sorryAudio = new Audio("/sorry.mp3");
+            sorryAudio.volume = 1;
+            sorryAudio.play().catch((err) => {
+              console.warn("Autoplay blocked for sorry audio.", err);
+            });
+
             doLockBet();
+          }
+
+          // Host forcefully advances the phase when time runs out
+          // (prevents game from getting stuck if someone dropped / disconnected)
+          if (isOwnerRef.current) {
+            setTimeout(() => {
+              triggerReveal();
+            }, 1000);
           }
         }
       }, 50);
     }
 
     initTimer();
-    return () => clearInterval(interval);
+    return () => {
+      isUnmounted = true;
+      clearInterval(interval);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.id, room.current_round]);
   // doLockBet intentionally omitted — it is stable via useCallback and
@@ -167,6 +278,9 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
     if (revealedRef.current || !channelRef.current) return;
     revealedRef.current = true; // prevent double-fire
 
+    // Short buffer to allow any last-second auto-lock upserts to commit
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
     const supabase = createBrowserClient();
 
     const { data: roundData } = await supabase
@@ -174,7 +288,7 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
       .select("id")
       .eq("room_id", room.id)
       .eq("round_number", room.current_round)
-      .single();
+      .maybeSingle();
 
     if (!roundData) return;
 
@@ -222,7 +336,7 @@ export function BettingPhase({ room, players, currentPlayer }: GamePhaseProps) {
       .select("id")
       .eq("room_id", room.id)
       .eq("round_number", room.current_round)
-      .single();
+      .maybeSingle();
 
     if (roundData) {
       await supabase.from("bets").upsert(

@@ -42,7 +42,7 @@ const optionalRules: OptionalRule[] = [
     default: false,
   },
 ]
-
+// zod schema for validation
 const settingsSchema = z.object({
   zero_bet_value: z.number().int().min(50).max(500).default(150),
   optional_rules: z.object({
@@ -63,7 +63,7 @@ const settingsSchema = z.object({
     }).default({ enabled: false }),
   }).default({}),
 })
-
+// base setting for the rules
 const defaultSettings: Record<string, unknown> = {
   zero_bet_value: 150,
   optional_rules: {
